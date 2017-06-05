@@ -1,0 +1,130 @@
+---
+title: "CNV by region or gene"
+output: html_notebook
+---
+
+ This code allows low resolution whole genome sequencing to be refined to a certain number of regions or genes based on GRanges objects.
+
+
+
+Here are the two cude chunks from: https://support.bioconductor.org/p/67118/
+```{r}
+geneRanges <- function(db, column="ENTREZID"){
+  g <- genes(db, columns=column)
+  col <- mcols(g)[[column]]
+  genes <- granges(g)[rep(seq_along(g), elementNROWS(col))]
+  mcols(genes)[[column]] <- as.character(unlist(col))
+  genes
+}
+
+splitColumnByOverlap <-function(query, subject, column="ENTREZID", ...){
+  olaps <- findOverlaps(query, subject, ...)
+  f1 <- factor(subjectHits(olaps),
+               levels=seq_len(subjectLength(olaps)))
+  splitAsList(mcols(query)[[column]][queryHits(olaps)], f1)
+}
+```
+
+
+Get the data in the format we need.
+```{r}
+setwd("~/NGS/HCC.NGS.CNV/clustering/all.1MB.fix.normreadct") 
+segnorm <- read_delim("SegNorm.txt", delim = "\t")
+segfix <- read_delim("SegFixed.txt", delim = "\t")
+segcopy <- read_delim("SegCopy.txt", delim = "\t")
+#Rows = bins; columns = samples
+seg <- segnorm #Can use anyone, all commands below are the same.
+c <- seg[,c(4:94)] #just samples
+c2 <- seg[,c(1:3)]
+c <- subset(c, select = h195.samples) #Getting just the columns matching the samples we want
+names(c) <- h195.names
+
+###Only if you want to do just the gene panel, ELSE skip to plotting below!
+segs <- as.data.frame(c(c2, c))
+df <- makeGRangesFromDataFrame(segs, keep.extra.columns = F) #Granges o
+df
+```
+
+Now get the genes or regions that you want in to the right format:
+
+```{r}
+#Get genes or regions as a Granges object then make them exact locations (same start/end) so they fit into exactly 1 bin only.
+genes <- top.locs
+good <- c(1:22) #removing sex chromosomes and any non-canonical ones
+good <- paste("chr", good, sep = "")
+genes <- genes %>% filter(chromosome %in% good)
+colnames(genes) <- Cs(chromosome, start, end, cytoband)
+genes$loc <- round((as.numeric(genes$start) + as.numeric(genes$end)) / 2, 0)
+genes <- genes[, c(1,5,4)]
+genes$start <- genes$loc
+colnames(genes)[2] <- "end"
+genes <- genes[,c(1,4,2,3)]
+head(genes)
+genes.gr <- makeGRangesFromDataFrame(genes, keep.extra.columns = T)
+genes.gr
+```
+
+Now use the functions above to overlap genes.gr and df
+
+```{r}
+#Now using the functions above to get the overlaps
+symInCnv <- splitColumnByOverlap(genes.gr,df,column = "cytoband")
+y <- unstrsplit(symInCnv, sep = ", ")
+y <- as.data.frame(y)
+colnames(y) <- "cytoband"
+
+seg.genes <- cbind(segs, y) #DOUBLE CHECK THAT THE NUMBER OF COLUMNS IS RIGHT
+seg.genes <- seg.genes[,c(1:3,14,4:13)]
+genes <- seg.genes %>% filter(cytoband %not in% "") #Keep only CNVs with known cancer genes or regions of interest
+genes$cytoband = gsub("\\,.*", "", genes$cytoband)
+c <- genes[,c(4:14)] #DOUBLE CHECK THE NUMBER OF COLUMNS
+row.names(c) <- c$cytoband
+c <- c[,c(2:11)]
+#Desc(c)
+#c$H195.CTC = c$H195.CTC - 1.6 #Normalize to CN2
+#c$H169.TUMOR = c$H169.TUMOR - 3 #Morn to CN2
+c <- as.matrix(c)
+head(c)
+```
+
+
+CTC 4 is an outlier so remove it, then plot the PCA plots and get the contributions of the individual areas
+
+```{r}
+c <- genes[,c(4:14)] #REMOVING CTC 4 AS OUTLIER
+row.names(c) <- c$cytoband
+c <- c[,c(2:11)]
+c <- as.matrix(c)
+c.pca <- PCA(t(c), scale.unit = F)
+c.pca.contrib <- as.data.frame(c.pca$var$contrib) #Get PCA contributions
+quali.sup2 <- as.factor(c("Blood", "Liver", "Tumor", rep("CTC", 7)))
+quali.sup2
+fviz_pca_ind(c.pca,habillage = quali.sup2, palette = "jco",repel = T, geom = "text", labelsize = 5, axis.linetype = "none", title = "", xlab = "", ylab = "", legend.title = "Cell Type",) 
+
+#Getting PCA contributions
+y <- fviz_contrib(c.pca, choice = "var", axes = 1,top = 20)
+y
+```
+
+
+CTC 4 is an outlier so remove it, then replot
+
+```{r}
+c <- genes[,c(4:10,12:14)] #REMOVING CTC 4 AS OUTLIER
+row.names(c) <- c$cytoband
+c <- c[,c(2:10)]
+c <- as.matrix(c)
+c.pca <- PCA(t(c),scale.unit = F)
+quali.sup2 <- as.factor(c("Blood", "Liver", "Tumor", rep("CTC", 6)))
+quali.sup2
+fviz_pca_ind(c.pca,habillage = quali.sup2, palette = "jco",repel = T, geom = "text", labelsize = 5, axis.linetype = "none", title = "", xlab = "", ylab = "", legend.title = "Cell Type") 
+fviz_pca_ind(c.pca) 
+
+y <- fviz_contrib(c.pca, choice = "var", axes = 1,top = 20)
+y
+```
+
+
+
+
+
