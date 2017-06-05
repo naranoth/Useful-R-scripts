@@ -7,7 +7,7 @@ output: html_notebook
 
 
 
-Here are the two cude chunks from: https://support.bioconductor.org/p/67118/
+Here are the two code chunks from: https://support.bioconductor.org/p/67118/
 ```{r}
 geneRanges <- function(db, column="ENTREZID"){
   g <- genes(db, columns=column)
